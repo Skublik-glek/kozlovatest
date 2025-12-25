@@ -11,24 +11,27 @@ from PySide6.QtWidgets import (
     QTextEdit, QPushButton, QHBoxLayout
 )
 
+# answers.txt будет лежать рядом с exe/скриптом
 ANSWERS_PATH = Path("answers.txt")
 
 FUZZY_THRESHOLD = 80
 POLL_MS = 200
 MAX_QUERY_LEN = 2000
 
+
 def norm(s: str) -> str:
     return " ".join(s.lower().split())
 
-class ClipWatchUI(QWidget):
+
+class AnswerFinder(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Answer Finder")
-        self.resize(620, 360)
+        self.resize(720, 420)
 
         self.status = QLabel("Запуск…")
-        self.input_preview = QLabel("Clipboard: (пусто)")
-        self.input_preview.setWordWrap(True)
+        self.clip_preview = QLabel("Clipboard: (пусто)")
+        self.clip_preview.setWordWrap(True)
 
         self.output = QTextEdit()
         self.output.setReadOnly(True)
@@ -44,7 +47,7 @@ class ClipWatchUI(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.status)
-        layout.addWidget(self.input_preview)
+        layout.addWidget(self.clip_preview)
         layout.addLayout(btns)
         layout.addWidget(self.output)
 
@@ -65,8 +68,6 @@ class ClipWatchUI(QWidget):
         self.timer.timeout.connect(self.tick)
         self.timer.start()
 
-        print("▶ UI started. Copy something…", flush=True)
-
     def load_answers(self):
         if not ANSWERS_PATH.exists():
             self.status.setText(f"❌ answers.txt не найден: {ANSWERS_PATH.resolve()}")
@@ -78,7 +79,7 @@ class ClipWatchUI(QWidget):
         self.status.setText(f"🟢 Активно | Строк в answers.txt: {len(self.answers)} | poll={POLL_MS}ms")
 
     def read_clipboard(self) -> str:
-        # форс запрос данных — полезно на Wayland
+        # На Windows это просто работает; на Linux/Wayland тоже нормально для чтения.
         _ = self.cb.mimeData(QClipboard.Clipboard)
         return self.cb.text(QClipboard.Clipboard) or ""
 
@@ -89,15 +90,13 @@ class ClipWatchUI(QWidget):
             return
         self.last_seen = text
 
-        preview = (text[:160].replace("\n", " ") + ("…" if len(text) > 160 else "")) if text else "(пусто)"
-        self.input_preview.setText(f"Clipboard: {preview}")
+        preview = (text[:180].replace("\n", " ") + ("…" if len(text) > 180 else "")) if text else "(пусто)"
+        self.clip_preview.setText(f"Clipboard: {preview}")
 
-        if not text or len(text) > MAX_QUERY_LEN:
+        if not text or len(text) > MAX_QUERY_LEN or not self.answers:
             return
 
         now = time.monotonic()
-
-        # если пользователь копирует одно и то же — можно не спамить
         if text == self.last_external and (now - self.last_external_time) < 0.25:
             return
         self.last_external = text
@@ -107,7 +106,7 @@ class ClipWatchUI(QWidget):
         if not q:
             return
 
-        # 1) substring (без регистра)
+        # 1) substring (case-insensitive)
         for line, ln in self.answers:
             if q in ln:
                 self.show_match(line, why="substring")
@@ -126,20 +125,20 @@ class ClipWatchUI(QWidget):
             self.show_match(best_line, why=f"fuzzy {best_score}%")
         else:
             self.status.setText(
-                f"🟢 Активно | Строк: {len(self.answers)} | "
-                f"нет совпадений (best {best_score}%)"
+                f"🟢 Активно | Строк: {len(self.answers)} | нет совпадений (best {best_score}%)"
             )
 
     def show_match(self, line: str, why: str):
         self.status.setText(f"🟢 MATCH: {why}")
         self.output.setPlainText(line)
-        print(f"✔ MATCH ({why}): {line}", flush=True)
+
 
 def main():
     app = QApplication(sys.argv)
-    w = ClipWatchUI()
+    w = AnswerFinder()
     w.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
